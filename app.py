@@ -1,7 +1,6 @@
-from mimetypes import init
 from flask import Flask, render_template, request, flash, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 
@@ -30,7 +29,6 @@ class User(UserMixin, db.Model):
 class Task(db.Model):
     id= db.Column(db.Integer,primary_key=True)
     title = db.Column(db.String(150))
-    description = db.Column(db.Text)
     status = db.Column(db.String(20), default = 'Pendente')
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable = False)
 
@@ -39,7 +37,7 @@ class Task(db.Model):
 # -----------------------------------
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(init(user_id))
+    return User.query.get(int(user_id))
 
 #--------------------------------------
 #ROTAS
@@ -78,9 +76,11 @@ def login():
         password = request.form['password']
 
         user = User.query.filter_by(email=email).first()
+
         if user and check_password_hash(user.password, password):
             login_user(user)
-            return redirect(url_for('task'))
+            return redirect(url_for('tasks'))
+        
         else:
             flash('E-mail ou senha incorretos.', 'danger')
     
@@ -92,6 +92,61 @@ def login():
 def logout():
     logout_user()
     return redirect(url_for('index'))
+
+#listar tarefas -- READ
+@app.route('/tasks')
+@login_required
+def tasks():
+    user_tasks = Task.query.filter_by(user_id=current_user.id).all()
+    return render_template('tasks.html', tasks=user_tasks)
+
+#Adicionar tarefa
+@app.route('/add_tasks', methods=['POST', 'GET'])
+@login_required
+def add_tasks():
+    if request.method == 'POST':
+        title = request.form['title']
+        new_task = Task(title=title, user_id=current_user.id)
+
+        db.session.add(new_task)
+        db.session.commit()
+        flash('Tarefa adicionada com sucesso!', 'success')
+        return redirect(url_for('tasks'))
+    
+    return render_template('add_tasks.html')
+
+#Atualizar status da tarefa -- UPDATE
+@app.route('/update_task/<int:id>')
+@login_required
+def update_task(id):
+    task = Task.query.get_or_404(id)
+
+    if task.user_id != current_user.id:
+        flash('Você não tem permissão para isso!', 'danger')
+        return redirect(url_for('tasks'))  # precisa estar como string
+    
+    # Alterna o status da tarefa
+    task.status = "Concluída" if task.status == "Pendente" else "Pendente"
+    
+    db.session.commit()
+    return redirect(url_for('tasks'))
+
+
+#Deletar tarefas -- DELETE
+@app.route('/delete_task/<int:id>')
+@login_required
+def delete_task(id):   # agora a função recebe o id
+    task = Task.query.get_or_404(id)
+
+    if task.user_id != current_user.id:
+        flash('Você não tem permissão para isso!', 'danger')
+        return redirect(url_for('tasks'))
+
+    db.session.delete(task)
+    db.session.commit()
+    flash('Tarefa excluída com sucesso!', 'info')
+    return redirect(url_for('tasks'))
+
 
 #----------------------------------------
 # CRIAÇÃO DO BANCO NA PRIMEIRA EXECUÇÃO
